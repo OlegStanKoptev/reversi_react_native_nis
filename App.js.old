@@ -1,0 +1,597 @@
+import React, {useState, useEffect} from 'react';
+import {TouchableOpacity, Button, StyleSheet, Text, View} from 'react-native';
+
+const FIELD_HEIGHT = 8;
+const FIELD_WIDTH = 8;
+
+const PLAYER1 = 'P1'; // 1
+const PLAYER2 = 'P2'; // 2
+const EMPTY_CELL = 'EM'; // 3
+const AVAILABLE_CELL = 'AV'; // 4
+
+const GAME_NONE = 'Game None'; // 5
+const GAME_RESET = 'Game Reset'; // 6
+const GAME_IN_PROGRESS = 'Game In Progress'; // 7
+const GAME_DRAW = 'Game Draw'; // 8
+const GAME_FINISH_PLAYER1 = 'Game Finish Player 1'; // 9
+const GAME_FINISH_PLAYER2 = 'Game Finish Player 2'; // 10
+
+const CELL_OFFSETS = [
+  [0, 1],
+  [0, -1],
+  [1, 0],
+  [-1, 0],
+  [1, 1],
+  [-1, -1],
+  [1, -1],
+  [-1, 1],
+];
+
+const clone = items =>
+  items.map(item => (Array.isArray(item) ? clone(item) : item));
+
+function getCellColorFor(value) {
+  switch (value) {
+    case EMPTY_CELL:
+      return 'white';
+    case AVAILABLE_CELL:
+      return 'silver';
+    case PLAYER1:
+      return 'khaki';
+    case PLAYER2:
+      return 'lightcoral';
+    default:
+      return 'red';
+  }
+}
+
+function mapGrid(grid, method) {
+  for (let i = 0; i < grid.length; i++) {
+    for (let j = 0; j < grid[i].length; j++) {
+      method(grid, i, j, grid[i][j]);
+    }
+  }
+}
+
+function getEnemyPlayer(currentPlayer) {
+  return currentPlayer === PLAYER1 ? PLAYER2 : PLAYER1;
+}
+
+function updateGridOnPress(
+  setGrid,
+  rowIndex,
+  columnIndex,
+  currentPlayer,
+  setCurrentPlayer,
+) {
+  setGrid(grid => {
+    setNewValueForCell(grid, rowIndex, columnIndex, currentPlayer);
+    clearAvailableCells(grid);
+    obtainCells(grid, rowIndex, columnIndex, currentPlayer);
+    return [...grid];
+  });
+
+  setCurrentPlayer(getEnemyPlayer(currentPlayer));
+}
+
+function chooseBestCellSimple(grid, availableCells) {
+  let maxScore = 0;
+  let x = -1;
+  let y = -1;
+
+  const field = clone(grid);
+
+  for (let i = 0; i < availableCells.length; i++) {
+    const cell = availableCells[i];
+    if (x === -1 && y === -1) {
+      x = cell[0];
+      y = cell[1];
+    }
+
+    const place = cell;
+    const previousState = field[cell[0]][cell[1]];
+    if (availableCells.includes(place)) {
+      field[cell[0]][cell[1]] = PLAYER2;
+      const score = tryObtainCells(
+        grid,
+        cell[0],
+        cell[1],
+        field[cell[0]][cell[1]],
+      );
+      if (maxScore < score) {
+        maxScore = score;
+        x = cell[0];
+        y = cell[1];
+      }
+    }
+    field[cell[0]][cell[1]] = previousState;
+  }
+
+  return [x, y];
+
+  // return availableCells[Math.floor(Math.random()*availableCells.length)]
+}
+
+function computerPlayerMakesAMove(
+  grid,
+  setGrid,
+  setGameState,
+  currentPlayer,
+  setCurrentPlayer,
+) {
+  const availableCells = markAvailableCells(grid, currentPlayer);
+  if (availableCells.length === 0) {
+    // setCurrentPlayer(getEnemyPlayer(currentPlayer));
+    console.log('COMPUTER: NO AVAILABLE CELLS');
+    endGame(grid, setGrid, setGameState);
+    return;
+  }
+
+  const chosenCell = chooseBestCellSimple(grid, availableCells);
+
+  setNewValueForCell(grid, chosenCell[0], chosenCell[1], currentPlayer);
+  obtainCells(grid, chosenCell[0], chosenCell[1], currentPlayer);
+
+  setTimeout(() => {
+    setCurrentPlayer(getEnemyPlayer(currentPlayer));
+  }, 200);
+}
+
+function obtainCells(grid, cellI, cellJ, player) {
+  const enemyPlayer = getEnemyPlayer(player);
+  let score = 0;
+  const capturedCells = [];
+  CELL_OFFSETS.forEach(offset => {
+    const sum = 0;
+    let i = cellI + offset[0];
+    let j = cellJ + offset[1];
+
+    while (isIndexValid(grid, i, j) && grid[i][j] === enemyPlayer) {
+      i += offset[0];
+      j += offset[1];
+    }
+    if (isIndexValid(grid, i, j) && grid[i][j] === player) {
+      i -= offset[0];
+      j -= offset[1];
+      while (i !== cellI || j !== cellJ) {
+        capturedCells.push([i, j]);
+        score++;
+        grid[i][j] = player;
+        i -= offset[0];
+        j -= offset[1];
+      }
+    }
+  });
+  // console.log(JSON.stringify(capturedCells))
+  return [score, capturedCells];
+}
+
+function borderPosition(grid, i, j) {
+  return (
+    i === 0 || j === 0 || i === grid.length - 1 || j === grid[i].length - 1
+  );
+}
+
+function tryObtainCells(grid, cellI, cellJ, player) {
+  const enemyPlayer = getEnemyPlayer(player);
+  let score = 0;
+
+  CELL_OFFSETS.forEach(offset => {
+    let sum = 0;
+    let i = cellI + offset[0];
+    let j = cellJ + offset[1];
+
+    while (isIndexValid(grid, i, j) && grid[i][j] === enemyPlayer) {
+      i += offset[0];
+      j += offset[1];
+    }
+    if (isIndexValid(grid, i, j) && grid[i][j] === player) {
+      i -= offset[0];
+      j -= offset[1];
+      while (i !== cellI || j !== cellJ) {
+        if (player === PLAYER2) {
+          sum++;
+          if (borderPosition(grid, i, j)) {
+            sum++;
+          }
+          i -= offset[0];
+          j -= offset[1];
+        }
+        if (player === PLAYER1) {
+          sum--;
+          if (borderPosition(grid, i, j)) {
+            sum--;
+          }
+          i -= offset[0];
+          j -= offset[1];
+        }
+      }
+    }
+
+    score += sum;
+  });
+
+  return score;
+}
+
+function setNewValueForCell(grid, row, column, value) {
+  grid[row][column] = value;
+}
+
+function clearAvailableCells(grid) {
+  mapGrid(grid, (_, i, j, value) => {
+    if (value === AVAILABLE_CELL) {
+      grid[i][j] = EMPTY_CELL;
+    }
+  });
+}
+
+function isIndexValid(grid, i, j) {
+  return i >= 0 && j >= 0 && i < grid.length && j < grid[0].length;
+}
+
+function cellIsAvailable(grid, i, j, player) {
+  const enemyPlayer = getEnemyPlayer(player);
+  let result = false;
+  CELL_OFFSETS.every(offset => {
+    if (
+      isIndexValid(grid, i + offset[0], j + offset[1]) &&
+      grid[i + offset[0]][j + offset[1]] === enemyPlayer
+    ) {
+      let newI = i + offset[0];
+      let newJ = j + offset[1];
+      while (isIndexValid(grid, newI, newJ)) {
+        if (grid[newI][newJ] !== enemyPlayer) {
+          break;
+        }
+        newI = newI + offset[0];
+        newJ = newJ + offset[1];
+      }
+
+      result = isIndexValid(grid, newI, newJ) && grid[newI][newJ] === player;
+      if (result) {
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if (result) {
+    const [_, cells] = obtainCells(clone(grid), i, j, player);
+    if (cells.length === 0) {
+      result = false;
+    }
+  }
+
+  return result;
+}
+
+function markAvailableCells(grid, player, score, setScore) {
+  const availableCells = [];
+  clearAvailableCells(grid);
+
+  mapGrid(grid, (_, i, j, value) => {
+    if (value === EMPTY_CELL && cellIsAvailable(grid, i, j, player)) {
+      grid[i][j] = AVAILABLE_CELL;
+      availableCells.push([i, j]);
+    }
+  });
+
+  if (score !== undefined && setScore !== undefined) {
+    const player1Score = countCellsForPlayer(grid, PLAYER1);
+    const player2Score = countCellsForPlayer(grid, PLAYER2);
+    if (player1Score !== score.PLAYER1 || player2Score !== score.PLAYER2) {
+      setTimeout(() => {
+        setScore({
+          PLAYER1: player1Score,
+          PLAYER2: player2Score,
+        });
+      }, 5);
+    }
+  }
+
+  return availableCells;
+}
+function markedAvailableCells(grid, player) {
+  return markAvailableCells(clone(grid), player);
+}
+
+function areThereNoEmptyCellsInGrid(grid) {
+  for (let i = 0; i < grid.length; i++) {
+    for (let j = 0; j < grid[i].length; j++) {
+      if (grid[i][j] !== PLAYER1 && grid[i][j] !== PLAYER2) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+function countCellsForPlayer(grid, player) {
+  let result = 0;
+  mapGrid(grid, (_, i, j, value) => {
+    if (value === player) {
+      result++;
+    }
+  });
+  return result;
+}
+
+function getInitialGridState() {
+  const grid = new Array(FIELD_WIDTH)
+    .fill(0)
+    .map(() => new Array(FIELD_HEIGHT).fill(EMPTY_CELL));
+
+  grid[FIELD_WIDTH / 2][FIELD_HEIGHT / 2] = PLAYER1;
+  grid[FIELD_WIDTH / 2 - 1][FIELD_HEIGHT / 2 - 1] = PLAYER1;
+
+  grid[FIELD_WIDTH / 2][FIELD_HEIGHT / 2 - 1] = PLAYER2;
+  grid[FIELD_WIDTH / 2 - 1][FIELD_HEIGHT / 2] = PLAYER2;
+
+  // mapGrid(grid, (grid, i, j, value) => {
+  //   if (i == 0) return
+  //   if (i == 1) grid[i][j] = PLAYER1
+  //   else grid[i][j] = PLAYER2
+  // })
+
+  return grid;
+}
+
+const Cell = ({value, onPress}) => {
+  return (
+    <View style={styles.cell}>
+      <TouchableOpacity
+        disabled={value !== AVAILABLE_CELL}
+        onPress={onPress}
+        style={[
+          {
+            ...styles.cell_content,
+            backgroundColor: getCellColorFor(value),
+          },
+        ]}>
+        <Text>{value}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+};
+
+function endGame(grid, setGrid, setGameState) {
+  const player1Score = countCellsForPlayer(grid, PLAYER1);
+  const player2Score = countCellsForPlayer(grid, PLAYER2);
+  let newGameState = GAME_NONE;
+  if (player1Score > player2Score) {
+    newGameState = GAME_FINISH_PLAYER1;
+  } else if (player2Score > player1Score) {
+    newGameState = GAME_FINISH_PLAYER2;
+  } else {
+    newGameState = GAME_DRAW;
+  }
+  setGameState(newGameState);
+  setGrid(oldGrid => {
+    clearAvailableCells(oldGrid);
+    return [...oldGrid];
+  });
+}
+let counter = 0;
+const Grid = ({
+  currentPlayer,
+  setCurrentPlayer,
+  gameState,
+  setGameState,
+  score,
+  setScore,
+}) => {
+  const [grid, setGrid] = useState(getInitialGridState);
+
+  const isHumanPlayer = currentPlayer === PLAYER1;
+  const areThereNoEmptyCells = areThereNoEmptyCellsInGrid(grid);
+  const availableCellsCount = markedAvailableCells(grid, currentPlayer).length;
+  const enemyAvailableCellsCount = markedAvailableCells(
+    grid,
+    getEnemyPlayer(currentPlayer),
+  ).length;
+
+  console.log(
+    `${counter}) isHuman: ${isHumanPlayer}, noEmpty: ${areThereNoEmptyCells}, availableCells: ${availableCellsCount}, enemyAvailableCells: ${enemyAvailableCellsCount}`,
+  );
+  counter++;
+
+  if (isHumanPlayer) {
+    markAvailableCells(grid, currentPlayer, score, setScore);
+  }
+
+  useEffect(() => {
+    if (gameState === GAME_RESET) {
+      console.log('GAME RESET');
+      setGameState(GAME_IN_PROGRESS);
+      setCurrentPlayer(PLAYER1);
+      setGrid(getInitialGridState);
+    }
+    if (
+      areThereNoEmptyCells ||
+      availableCellsCount === 0 ||
+      enemyAvailableCellsCount === 0
+    ) {
+      console.log('END GAME');
+      endGame(grid, setGrid, setGameState);
+    }
+
+    if (!isHumanPlayer) {
+      console.log('COMPUTER MAKES A MOVE');
+      computerPlayerMakesAMove(
+        grid,
+        setGrid,
+        setGameState,
+        currentPlayer,
+        setCurrentPlayer,
+      );
+    }
+  }, [
+    grid,
+    setGrid,
+    currentPlayer,
+    setCurrentPlayer,
+    gameState,
+    setGameState,
+    isHumanPlayer,
+    areThereNoEmptyCells,
+    availableCellsCount,
+    enemyAvailableCellsCount,
+  ]);
+
+  return (
+    <View style={styles.grid}>
+      {grid.map((row, rowIndex) => (
+        <View key={rowIndex} style={styles.grid_row}>
+          {row.map((item, columnIndex) => (
+            <Cell
+              key={columnIndex}
+              value={item}
+              onPress={() => {
+                updateGridOnPress(
+                  setGrid,
+                  rowIndex,
+                  columnIndex,
+                  currentPlayer,
+                  setCurrentPlayer,
+                );
+              }}
+            />
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+};
+
+function getTitleText(gameState, currentPlayer, score) {
+  let statusText;
+  switch (gameState) {
+    case GAME_IN_PROGRESS:
+      statusText = gameState + ': ' + currentPlayer;
+      break;
+    case GAME_FINISH_PLAYER1:
+    case GAME_FINISH_PLAYER2:
+    case GAME_DRAW:
+    case GAME_RESET:
+    case GAME_NONE:
+      statusText = [gameState];
+      break;
+    default:
+      statusText = 'default';
+  }
+  return (
+    <Text>
+      <Text>{statusText}</Text>
+      {'\n'}
+      <Text>
+        {'Current score: '}
+        <Text style={{color: getCellColorFor(PLAYER1)}}>P1</Text>
+        {' - ' + score.PLAYER1 + ', '}
+        <Text style={{color: getCellColorFor(PLAYER2)}}>P2</Text>
+        {' - ' + score.PLAYER2}
+      </Text>
+    </Text>
+  );
+}
+
+function isGameFinished(gameState) {
+  switch (gameState) {
+    case GAME_FINISH_PLAYER1:
+    case GAME_FINISH_PLAYER2:
+    case GAME_DRAW:
+      return true;
+    case GAME_IN_PROGRESS:
+    case GAME_NONE:
+    case GAME_RESET:
+    default:
+      return false;
+  }
+}
+
+const MainScreen = () => {
+  const [gameState, setGameState] = useState(GAME_IN_PROGRESS);
+  const [currentPlayer, setCurrentPlayer] = useState(PLAYER1);
+  const [score, setScore] = useState({PLAYER1: 0, PLAYER2: 0});
+
+  return (
+    <View style={styles.main}>
+      <View
+        style={{
+          flex: 2,
+          justifyContent: 'flex-end',
+        }}>
+        <Text style={styles.top_message_text}>
+          {getTitleText(gameState, currentPlayer, score)}
+        </Text>
+      </View>
+      <View
+        style={{
+          flex: 8,
+          justifyContent: 'center',
+        }}>
+        <Grid
+          currentPlayer={currentPlayer}
+          setCurrentPlayer={setCurrentPlayer}
+          gameState={gameState}
+          setGameState={setGameState}
+          score={score}
+          setScore={setScore}
+        />
+      </View>
+      <View
+        style={{
+          flex: 6,
+        }}>
+        {isGameFinished(gameState) && (
+          <Button
+            title="reset"
+            onPress={() => {
+              setGameState(GAME_RESET);
+            }}
+          />
+        )}
+      </View>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  main: {
+    paddingHorizontal: 20,
+    paddingVertical: 40,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  top_message_text: {
+    textAlign: 'center',
+    alignSelf: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  grid: {
+    borderWidth: 1,
+    flexDirection: 'row',
+  },
+  grid_row: {
+    flexDirection: 'column',
+    flex: 1,
+  },
+  cell: {
+    borderWidth: 1,
+    aspectRatio: 1,
+  },
+  cell_content: {
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+export default MainScreen;
