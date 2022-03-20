@@ -11,8 +11,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import {NavigationContainer, useFocusEffect} from '@react-navigation/native';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 
-const FIELD_HEIGHT = 4;
-const FIELD_WIDTH = 4;
+const FIELD_HEIGHT = 8;
+const FIELD_WIDTH = 8;
 
 const GAME_START_DELAY = 1000;
 const COMPUTER_DELAY = 500;
